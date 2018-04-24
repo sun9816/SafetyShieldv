@@ -18,10 +18,11 @@ public:
 private:
 	std::string Md5Hash(const std::string &in);
 	std::string EvpBytesToKey(const std::string	&szPassword);
-	std::string DataAes_256_cfb(const std::string &in, std::string &iv, const std::string &password);
+	std::string DataAes_256_cfb(const std::string &in, std::string &iv, const std::string &password, int &nNum, int nEnc);
 private:
 	std::string			m_szPassword;
 	std::string			m_szEncipherIv, m_szDecipherIv;
+	int					m_nEncipherNum, m_nDecipherNum;
 
 };
 

@@ -4,7 +4,7 @@
 #include <WS2tcpip.h>
 #pragma comment(lib,"ws2_32.lib")
 
-#define RELEASE_SOCKET(s)		if(s == INVALID_SOCKET){closesocket(s);s=INVALID_SOCKET;}
+#define RELEASE_SOCKET(s)		if(s != INVALID_SOCKET){closesocket(s);s=INVALID_SOCKET;}
 
 CTcpRelay::CTcpRelay() {
 
@@ -39,7 +39,7 @@ bool CTcpRelay::Stop() {
 		return false;
 	}
 
-	m_bStop = false;
+	m_bStop = true;
 	if (m_ThreadListenPtr) {
 		m_ThreadListenPtr->join();
 		m_ThreadListenPtr.reset();

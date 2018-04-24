@@ -16,15 +16,15 @@ CEncryptor::~CEncryptor() {
 }
 
 std::string CEncryptor::Encrypt(const std::string &data) {
-	return DataAes_256_cfb(data, m_szEncipherIv, m_szPassword);
+	return DataAes_256_cfb(data, m_szEncipherIv, m_szPassword, m_nEncipherNum, AES_ENCRYPT);
 }
 
 std::string CEncryptor::Decrypt(const std::string &data) {
-	//std::string s1 = DataAes_256_cfb_test2(data, m_szDecipherIv, m_szPassword);
-	return DataAes_256_cfb(data, m_szDecipherIv, m_szPassword);
+	return DataAes_256_cfb(data, m_szDecipherIv, m_szPassword, m_nDecipherNum, AES_DECRYPT);
 }
 
 void CEncryptor::InitEncipher(std::string &header) {
+	m_nEncipherNum = 0;
 	m_szEncipherIv.resize(IV_LENGTH, 0);
 	RAND_bytes(
 		  const_cast<unsigned char *>(reinterpret_cast<const unsigned char*>(m_szEncipherIv.data()))
@@ -34,6 +34,7 @@ void CEncryptor::InitEncipher(std::string &header) {
 }
 
 void CEncryptor::InitDecipher(const std::string &data, size_t &offset) {
+	m_nDecipherNum = 0;
 	m_szDecipherIv = data.substr(0, IV_LENGTH);
 	offset = IV_LENGTH;
 }
@@ -80,11 +81,10 @@ std::string CEncryptor::EvpBytesToKey(const std::string	&szPassword) {
 	return ms.substr(0, KEY_LENGTH);
 }
 
-std::string CEncryptor::DataAes_256_cfb(const std::string &in, std::string &iv, const std::string &password) {
+std::string CEncryptor::DataAes_256_cfb(const std::string &in, std::string &iv, const std::string &password, int &nNum, int nEnc) {
 	std::string strKey = EvpBytesToKey(password);
-	std::string strIv = iv;
+	//std::string strIv = iv;
 	AES_KEY key = { 0 };
-	int nNum = 0;
 
 	if (AES_set_encrypt_key(reinterpret_cast<const unsigned char *>(strKey.data()), KEY_LENGTH*8, &key) < 0) {
 		return "";
@@ -96,9 +96,9 @@ std::string CEncryptor::DataAes_256_cfb(const std::string &in, std::string &iv, 
 		, const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(out.data()))
 		, in.size()
 		, &key
-		, const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(strIv.data()))
+		, const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(iv.data()))
 		, &nNum
-		, AES_ENCRYPT);
+		, nEnc);
 
 	return out;
 }
