@@ -3,7 +3,12 @@
 #include <openssl/rand.h>
 #include <openssl/aes.h>
 #include <openssl/md5.h>
+
+#ifdef _DEBUG
 #pragma comment(lib, "libeay32MTd.lib")
+#else
+#pragma comment(lib, "libeay32MT.lib")
+#endif
 
 #define IV_LENGTH			16
 #define KEY_LENGTH			32

@@ -4,7 +4,7 @@ using namespace std;
 
 int main(void) {
 	CTcpRelay relay;
-	relay.Start(2018, string("192.168.1.224"), 9999);
+	relay.Start(9000, string("103.232.147.22"), 9000);
 	getchar();
 	return 0;
 }

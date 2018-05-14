@@ -22,7 +22,7 @@ protected:
 	void ThreadListen();
 	void ThreadRelay(SOCKET s);
 
-	SOCKET ConnectServer(std::string &nServerAddr, int nServerPort, CEncryptor &encryptor);
+	SOCKET ConnectServer(std::string &szServerAddr, int nServerPort, CEncryptor &encryptor);
 
 private:
 	int				m_nPort;

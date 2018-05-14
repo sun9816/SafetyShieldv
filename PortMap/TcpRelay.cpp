@@ -116,7 +116,7 @@ void CTcpRelay::ThreadRelay(SOCKET s) {
 	//有客户端连接, 连接ss节点
 	SOCKET ssSocket = INVALID_SOCKET, clientSocket = s;
 	sockaddr_in ssAddr = { 0 };
-	CEncryptor encryptor("qwertyuiop");
+	CEncryptor encryptor("BEGC8e@DeEDs#w");
 	FD_SET readSet = { 0 };
 	timeval timeOut = { 1,0 };
 	int nResult = 0;
@@ -154,6 +154,7 @@ void CTcpRelay::ThreadRelay(SOCKET s) {
 			}
 
 			data = encryptor.Decrypt(data);
+			
 			if ((nResult = send(clientSocket, data.data(), data.size(), 0)) != data.size()) {
 				break;
 			}
@@ -163,7 +164,6 @@ void CTcpRelay::ThreadRelay(SOCKET s) {
 			if ((nResult = recv(clientSocket, const_cast<char *>(data.data()), data.size(), 0)) <= 0) {
 				break;
 			}
-
 			data.resize(nResult);
 			data = encryptor.Encrypt(data);
 			if ((nResult = send(ssSocket, data.data(), data.size(), 0)) != data.size()) {
@@ -178,7 +178,7 @@ cleanup:
 	--m_nWorkerCount;
 }
 
-SOCKET CTcpRelay::ConnectServer(std::string & nServerAddr, int nServerPort, CEncryptor &encryptor) {
+SOCKET CTcpRelay::ConnectServer(std::string & szServerAddr, int nServerPort, CEncryptor &encryptor) {
 	SOCKET ssSocket = INVALID_SOCKET;
 	sockaddr_in ssAddr = { 0 };
 	std::string data = { 0x01 };	//host is a 4-byte IPv4 address.
@@ -191,19 +191,19 @@ SOCKET CTcpRelay::ConnectServer(std::string & nServerAddr, int nServerPort, CEnc
 	}
 
 	ssAddr.sin_family = AF_INET;
-	inet_pton(AF_INET, "127.0.0.1", &ssAddr.sin_addr);
-	ssAddr.sin_port = htons(54321);
+	inet_pton(AF_INET, "35.234.57.146", &ssAddr.sin_addr);
+	ssAddr.sin_port = htons(12580);
 	if (connect(ssSocket, reinterpret_cast<const sockaddr *>(&ssAddr), sizeof(ssAddr)) == INVALID_SOCKET) {
 		printf("CTcpRelay::ConnectServer connect() failed error is %d", WSAGetLastError());
 		goto cleanup;
 	}
-
+	
 	//连接成功,发送命令使ss连接服务器
-	const char *p = m_szServerAddr.data();
-	inet_pton(AF_INET, m_szServerAddr.data(), &netAddr);
-	netPort = htons(m_nServerPort);
+	
+	inet_pton(AF_INET, szServerAddr.data(), &netAddr);
+	netPort = htons(nServerPort);
 	data.append(reinterpret_cast<const char *>(&netAddr), sizeof(netAddr));
-	data.append(reinterpret_cast<const char *>(&netPort), sizeof(netAddr));
+	data.append(reinterpret_cast<const char *>(&netPort), sizeof(netPort));
 	encryptor.InitEncipher(iv);
 
 	data = iv + encryptor.Encrypt(data);
@@ -211,7 +211,7 @@ SOCKET CTcpRelay::ConnectServer(std::string & nServerAddr, int nServerPort, CEnc
 		printf("CTcpRelay::ConnectServer send() failed error is %d", WSAGetLastError());
 		goto cleanup;
 	}
-
+	
 	return ssSocket;
 
 cleanup:
