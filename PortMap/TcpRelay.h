@@ -15,22 +15,19 @@ public:
 	virtual ~CTcpRelay();
 
 public:
-	bool Start(int nPort, std::string &szServerAddr, int nServerPort);
+	bool Start(int nPort, const std::string &szServerAddr, int nServerPort);
 	bool Stop();
 
 protected:
-	void ThreadListen();
-	void ThreadRelay(SOCKET s);
+	void ThreadListen(int nPort, const std::string &szServerAddr, int nServerPort);
+	void ThreadRelay(SOCKET s, const std::string &szServerAddr, int nServerPort);
 
-	SOCKET ConnectServer(std::string &szServerAddr, int nServerPort, CEncryptor &encryptor);
+	SOCKET ConnectServer(const std::string & szSSAddr, int nSSPort, const std::string &szServerAddr, int nServerPort, CEncryptor &encryptor);
 
 private:
-	int				m_nPort;
 	bool			m_bStop;
-	std::string		m_szServerAddr;
-	int				m_nServerPort;
 
-	std::shared_ptr<std::thread>	m_ThreadListenPtr;
-	std::atomic<int>				m_nWorkerCount;
+	std::list<std::shared_ptr<std::thread>>	m_listThreadListenPtr;
+	std::atomic<int>						m_nWorkerCount;
 };
 

@@ -7,6 +7,8 @@
 #define RELEASE_SOCKET(s)		if(s != INVALID_SOCKET){closesocket(s);s=INVALID_SOCKET;}
 
 CTcpRelay::CTcpRelay() {
+	m_bStop = true;
+	m_nWorkerCount = 0;
 
 	WSADATA wsaData = { 0 };
 	WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -19,19 +21,12 @@ CTcpRelay::~CTcpRelay() {
 	WSACleanup();
 }
 
-bool CTcpRelay::Start(int nPort, std::string &szServerAddr, int nServerPort) {
-	if (!m_bStop) {
-		return false;
-	}
-	m_nPort = nPort;
-	m_szServerAddr = szServerAddr;
-	m_nServerPort = nServerPort;
+bool CTcpRelay::Start(int nPort, const std::string &szServerAddr, int nServerPort) {
 	m_bStop = false;
-	m_nWorkerCount = 0;
 
-	m_ThreadListenPtr = std::make_shared<std::thread>(&CTcpRelay::ThreadListen, this);
-
-	return static_cast<bool>(m_ThreadListenPtr);
+	m_listThreadListenPtr.push_back(std::make_shared<std::thread>(&CTcpRelay::ThreadListen, this, nPort, szServerAddr, nServerPort));
+	
+	return true;
 }
 
 bool CTcpRelay::Stop() {
@@ -40,15 +35,16 @@ bool CTcpRelay::Stop() {
 	}
 
 	m_bStop = true;
-	if (m_ThreadListenPtr) {
-		m_ThreadListenPtr->join();
-		m_ThreadListenPtr.reset();
+	for (auto & it : m_listThreadListenPtr) {
+		it->join();
 	}
-
-return true;
+	
+	m_listThreadListenPtr.clear();
+	m_nWorkerCount = 0;
+	return true;
 }
 
-void CTcpRelay::ThreadListen() {
+void CTcpRelay::ThreadListen(int nPort, const std::string &szServerAddr, int nServerPort) {
 	SOCKET listenSocket = INVALID_SOCKET;
 	SOCKET clientSocket = INVALID_SOCKET;
 	sockaddr_in listenAddr = { 0 }, acceptAddr = { 0 };
@@ -56,14 +52,16 @@ void CTcpRelay::ThreadListen() {
 	timeval timeOut = { 1,0 };
 	int nResult = 0,nAcceptAddrlen = 0;
 
+	printf("CTcpRelay::ThreadListen Start LocalPort is %d\n", nPort);
+
 	if ((listenSocket = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET) {
 		goto cleanup;
 	}
 
 	listenAddr.sin_family = AF_INET;
-	listenAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
-	//inet_pton(AF_INET, "127.0.0.1", &listenAddr.sin_addr);
-	listenAddr.sin_port = htons(m_nPort);
+	//listenAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+	inet_pton(AF_INET, "127.0.0.1", &listenAddr.sin_addr);
+	listenAddr.sin_port = htons(nPort);
 	if (bind(listenSocket, reinterpret_cast<const sockaddr *>(&listenAddr), sizeof(listenAddr)) == SOCKET_ERROR) {
 		printf("CTcpRelay::ThreadListen bind() failed error is %d", WSAGetLastError());
 		goto cleanup;
@@ -94,11 +92,12 @@ void CTcpRelay::ThreadListen() {
 		}
 
 		if (m_nWorkerCount > 20) {
+			printf("CTcpRelay::ThreadListen client count > 20\n");
 			RELEASE_SOCKET(clientSocket);
 			continue;
 		}
 
-		std::thread th(&CTcpRelay::ThreadRelay, this, clientSocket);
+		std::thread th(&CTcpRelay::ThreadRelay, this, clientSocket, szServerAddr, nServerPort);
 		th.detach();
 	}
 
@@ -111,26 +110,43 @@ cleanup:
 	RELEASE_SOCKET(listenSocket);
 }
 
-void CTcpRelay::ThreadRelay(SOCKET s) {
+void CTcpRelay::ThreadRelay(SOCKET s, const std::string &szServerAddr, int nServerPort) {
 	++m_nWorkerCount;
 	//有客户端连接, 连接ss节点
 	SOCKET ssSocket = INVALID_SOCKET, clientSocket = s;
 	sockaddr_in ssAddr = { 0 };
 	CEncryptor encryptor("BEGC8e@DeEDs#w");
-	FD_SET readSet = { 0 };
+	FD_SET readSet = { 0 }, writeSet = { 0 };
 	timeval timeOut = { 1,0 };
+	std::string ssSendBuffer, clientSendBuffer;
 	int nResult = 0;
+	u_long iMode = 1;
 
-	if ((ssSocket = ConnectServer(m_szServerAddr, m_nServerPort, encryptor)) == INVALID_SOCKET) {
+	if ((ssSocket = ConnectServer("35.234.57.146", 12580, szServerAddr, nServerPort, encryptor)) == INVALID_SOCKET) {
 		goto cleanup;
 	}
 
+	//设置为异步
+	ioctlsocket(clientSocket, FIONBIO, &iMode);
+	ioctlsocket(ssSocket, FIONBIO, &iMode);
+	//关闭延迟确认
+	setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&iMode), sizeof(iMode));
+	setsockopt(ssSocket, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char *>(&iMode), sizeof(iMode));
+
+
 	while (!m_bStop) {
 		FD_ZERO(&readSet);
+		FD_ZERO(&writeSet);
 		FD_SET(ssSocket, &readSet);
 		FD_SET(clientSocket, &readSet);
+		if (!ssSendBuffer.empty()) {
+			FD_SET(ssSocket, &writeSet);
+		}
+		if (!clientSendBuffer.empty()) {
+			FD_SET(clientSocket, &writeSet);
+		}
 
-		if ((nResult = select(0, &readSet, nullptr, nullptr, &timeOut)) == SOCKET_ERROR) {
+		if ((nResult = select(0, &readSet, &writeSet, nullptr, &timeOut)) == SOCKET_ERROR) {
 			printf("CTcpRelay::ThreadRelay select() failed error is %d", WSAGetLastError());
 			break;
 		}
@@ -153,11 +169,7 @@ void CTcpRelay::ThreadRelay(SOCKET s) {
 				data.erase(0, nOffset);
 			}
 
-			data = encryptor.Decrypt(data);
-			
-			if ((nResult = send(clientSocket, data.data(), data.size(), 0)) != data.size()) {
-				break;
-			}
+			clientSendBuffer.append(encryptor.Decrypt(data));
 		}
 		//判断是否本地发送来数据
 		if (FD_ISSET(clientSocket, &readSet)) {
@@ -165,11 +177,22 @@ void CTcpRelay::ThreadRelay(SOCKET s) {
 				break;
 			}
 			data.resize(nResult);
-			data = encryptor.Encrypt(data);
-			if ((nResult = send(ssSocket, data.data(), data.size(), 0)) != data.size()) {
+			ssSendBuffer.append(encryptor.Encrypt(data));
+		}
+		//判断有没有可写数据
+		if (FD_ISSET(ssSocket, &writeSet)) {
+			if ((nResult = send(ssSocket, ssSendBuffer.data(), ssSendBuffer.size(), 0)) <= 0) {
 				break;
 			}
+			ssSendBuffer.erase(0, nResult);
 		}
+		if (FD_ISSET(clientSocket, &writeSet)) {
+			if ((nResult = send(clientSocket, clientSendBuffer.data(), clientSendBuffer.size(), 0)) <= 0) {
+				break;
+			}
+			clientSendBuffer.erase(0, nResult);
+		}
+
 	}
 
 cleanup:
@@ -178,7 +201,7 @@ cleanup:
 	--m_nWorkerCount;
 }
 
-SOCKET CTcpRelay::ConnectServer(std::string & szServerAddr, int nServerPort, CEncryptor &encryptor) {
+SOCKET CTcpRelay::ConnectServer(const std::string & szSSAddr, int nSSPort, const std::string & szServerAddr, int nServerPort, CEncryptor &encryptor) {
 	SOCKET ssSocket = INVALID_SOCKET;
 	sockaddr_in ssAddr = { 0 };
 	std::string data = { 0x01 };	//host is a 4-byte IPv4 address.
@@ -191,8 +214,8 @@ SOCKET CTcpRelay::ConnectServer(std::string & szServerAddr, int nServerPort, CEn
 	}
 
 	ssAddr.sin_family = AF_INET;
-	inet_pton(AF_INET, "35.234.57.146", &ssAddr.sin_addr);
-	ssAddr.sin_port = htons(12580);
+	inet_pton(AF_INET, szSSAddr.c_str(), &ssAddr.sin_addr);
+	ssAddr.sin_port = htons(nSSPort);
 	if (connect(ssSocket, reinterpret_cast<const sockaddr *>(&ssAddr), sizeof(ssAddr)) == INVALID_SOCKET) {
 		printf("CTcpRelay::ConnectServer connect() failed error is %d", WSAGetLastError());
 		goto cleanup;
