@@ -15,21 +15,24 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
+    <ClCompile Include="Encryptor.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="TcpRelay.cpp">
+    <ClCompile Include="TextEncryptor.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="Camouflage.cpp">
+    <ClCompile Include="StringEx.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="TcpRelay.h">
+    <ClInclude Include="Encryptor.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="Camouflage.h">
+    <ClInclude Include="TextEncryptor.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="StringEx.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

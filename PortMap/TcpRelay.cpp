@@ -1,5 +1,8 @@
 #include "TcpRelay.h"
 
+#include "../Common/StringEx.h"
+#include "../Common/TextEncryptor.h"
+
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #pragma comment(lib,"ws2_32.lib")
@@ -21,8 +24,19 @@ CTcpRelay::~CTcpRelay() {
 	WSACleanup();
 }
 
-bool CTcpRelay::Start(int nPort, const std::string &szServerAddr, int nServerPort) {
-	m_bStop = false;
+bool CTcpRelay::Start(const std::string & szSSUrl) {
+	if (!m_bStop) {
+		return false;
+	}
+
+	m_bStop = !GetSSNodeInfo(szSSUrl);
+	return !m_bStop;
+}
+
+bool CTcpRelay::AddMap(int nPort, const std::string &szServerAddr, int nServerPort) {
+	if (m_bStop) {
+		return false;
+	}
 
 	m_listThreadListenPtr.push_back(std::make_shared<std::thread>(&CTcpRelay::ThreadListen, this, nPort, szServerAddr, nServerPort));
 	
@@ -115,14 +129,22 @@ void CTcpRelay::ThreadRelay(SOCKET s, const std::string &szServerAddr, int nServ
 	//有客户端连接, 连接ss节点
 	SOCKET ssSocket = INVALID_SOCKET, clientSocket = s;
 	sockaddr_in ssAddr = { 0 };
-	CEncryptor encryptor("BEGC8e@DeEDs#w");
+	CEncryptor encryptor;
 	FD_SET readSet = { 0 }, writeSet = { 0 };
 	timeval timeOut = { 1,0 };
 	std::string ssSendBuffer, clientSendBuffer;
 	int nResult = 0;
 	u_long iMode = 1;
+	SSNodeInfo ssInfo;
 
-	if ((ssSocket = ConnectServer("35.234.57.146", 12580, szServerAddr, nServerPort, encryptor)) == INVALID_SOCKET) {
+	if (!GetFristNode(ssInfo)) {
+		printf("CTcpRelay::ThreadRelay GetFristNode() failed error is list empty\n");
+		goto cleanup;
+	}
+
+	encryptor.SetPassword(ssInfo.m_szPassword);
+	if ((ssSocket = ConnectServer(ssInfo.m_szAddress, ssInfo.m_nPort, szServerAddr, nServerPort, encryptor)) == INVALID_SOCKET) {
+		printf("CTcpRelay::ThreadRelay connect() failed error is %d\n", WSAGetLastError());
 		goto cleanup;
 	}
 
@@ -147,7 +169,7 @@ void CTcpRelay::ThreadRelay(SOCKET s, const std::string &szServerAddr, int nServ
 		}
 
 		if ((nResult = select(0, &readSet, &writeSet, nullptr, &timeOut)) == SOCKET_ERROR) {
-			printf("CTcpRelay::ThreadRelay select() failed error is %d", WSAGetLastError());
+			printf("CTcpRelay::ThreadRelay select() failed error is %d\n", WSAGetLastError());
 			break;
 		}
 		if (nResult == 0) {
@@ -216,8 +238,8 @@ SOCKET CTcpRelay::ConnectServer(const std::string & szSSAddr, int nSSPort, const
 	ssAddr.sin_family = AF_INET;
 	inet_pton(AF_INET, szSSAddr.c_str(), &ssAddr.sin_addr);
 	ssAddr.sin_port = htons(nSSPort);
-	if (connect(ssSocket, reinterpret_cast<const sockaddr *>(&ssAddr), sizeof(ssAddr)) == INVALID_SOCKET) {
-		printf("CTcpRelay::ConnectServer connect() failed error is %d", WSAGetLastError());
+	if (connect(ssSocket, reinterpret_cast<const sockaddr *>(&ssAddr), sizeof(ssAddr)) == SOCKET_ERROR) {
+		printf("CTcpRelay::ConnectServer connect() failed error is %d\n", WSAGetLastError());
 		goto cleanup;
 	}
 	
@@ -231,7 +253,7 @@ SOCKET CTcpRelay::ConnectServer(const std::string & szSSAddr, int nSSPort, const
 
 	data = iv + encryptor.Encrypt(data);
 	if (send(ssSocket, data.data(), data.size(), 0) != data.size()) {
-		printf("CTcpRelay::ConnectServer send() failed error is %d", WSAGetLastError());
+		printf("CTcpRelay::ConnectServer send() failed error is %d\n", WSAGetLastError());
 		goto cleanup;
 	}
 	
@@ -240,4 +262,52 @@ SOCKET CTcpRelay::ConnectServer(const std::string & szSSAddr, int nSSPort, const
 cleanup:
 	RELEASE_SOCKET(ssSocket);
 	return INVALID_SOCKET;
+}
+
+#import <WinHttpCom.dll> no_namespace
+bool CTcpRelay::GetSSNodeInfo(const std::string & szUrl) {
+	CoInitialize(nullptr);
+	std::string retHtml;
+	m_listSSNode.clear();
+
+	try {
+		IWinHttpRequestPtr httpPtr = nullptr;
+		BSTR bstrBody;
+
+		httpPtr.CreateInstance(__uuidof(WinHttpRequest));
+		httpPtr->Open("GET", szUrl.c_str());
+		httpPtr->Send();
+		httpPtr->get_ResponseText(&bstrBody);
+		retHtml = (_bstr_t)(bstrBody);
+	}
+	catch (...) { }
+
+	
+	retHtml = StringEx::MidStr(retHtml, "[begin]", "[end]");
+	retHtml = StringEx::Relpace(retHtml, "<wbr>", "");
+	if (!retHtml.empty()
+		&& (retHtml = TextEncryptor::Decrypt(retHtml), !retHtml.empty())) {
+		auto strList = StringEx::Split(retHtml, ";");
+		for (auto & it : strList) {
+			auto nodeList = StringEx::Split(it, "&");
+			if (nodeList.size() == 3) {
+				m_listSSNode.push_back(SSNodeInfo(nodeList[0], nodeList[1], nodeList[2]));
+			}
+		}
+	}
+
+ 	CoUninitialize();
+	return !m_listSSNode.empty();
+}
+
+bool CTcpRelay::GetFristNode(SSNodeInfo & node) {
+	std::unique_lock<std::mutex> lock(m_Lock);
+	if (m_listSSNode.empty()) {
+		return false;
+	}
+
+	node = *m_listSSNode.begin();
+	m_listSSNode.erase(m_listSSNode.begin());
+	m_listSSNode.push_back(node);
+	return true;
 }

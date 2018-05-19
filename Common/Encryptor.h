@@ -4,12 +4,16 @@
 
 class CEncryptor {
 public:
+	CEncryptor();
 	CEncryptor(const std::string &szPassword);
 	virtual ~CEncryptor();
 
 public:
 	std::string Encrypt(const std::string &data);
 	std::string Decrypt(const std::string &data);
+	std::string Base64Encrypt(const std::string &data);
+	std::string Base64Decrypt(const std::string &data);
+	void SetPassword(const std::string &szPassword);
 	void InitEncipher(std::string &header);
 	void InitDecipher(const std::string &data, size_t &offset);
 	bool IsInitEncipher();

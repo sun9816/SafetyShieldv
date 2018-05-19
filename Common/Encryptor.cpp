@@ -3,6 +3,7 @@
 #include <openssl/rand.h>
 #include <openssl/aes.h>
 #include <openssl/md5.h>
+#include <openssl/evp.h>
 
 #ifdef _DEBUG
 #pragma comment(lib, "libeay32MTd.lib")
@@ -12,6 +13,9 @@
 
 #define IV_LENGTH			16
 #define KEY_LENGTH			32
+
+CEncryptor::CEncryptor() {
+}
 
 CEncryptor::CEncryptor(const std::string &szPassword) {
 	m_szPassword = szPassword;
@@ -28,6 +32,41 @@ std::string CEncryptor::Decrypt(const std::string &data) {
 	return DataAes_256_cfb(data, m_szDecipherIv, m_szPassword, m_nDecipherNum, AES_DECRYPT);
 }
 
+std::string CEncryptor::Base64Encrypt(const std::string & data) {
+	std::string outBuffer(data.size() * 2, 0);
+	int nRet = 0;
+	if ((nRet = EVP_EncodeBlock(const_cast<unsigned char *>(reinterpret_cast<const unsigned char*>(outBuffer.data()))
+		, reinterpret_cast<const unsigned char*>(data.data())
+		, data.size())) <= 0) {
+		return "";
+	}
+
+	outBuffer.resize(nRet);
+	return outBuffer;
+}
+
+std::string CEncryptor::Base64Decrypt(const std::string & data) {
+	std::string outBuffer(data.size(), 0);
+	int nRet = 0;
+	if ((nRet = EVP_DecodeBlock(const_cast<unsigned char *>(reinterpret_cast<const unsigned char*>(outBuffer.data()))
+		, reinterpret_cast<const unsigned char*>(data.data())
+		, data.size())) <= 0) {
+		return "";
+	}
+
+	size_t nPos = data.find_last_not_of("=");
+	nPos = nPos == std::string::npos ? 0 : data.size() - nPos - 1;
+	if (nRet - nPos >= 0) {
+		outBuffer.resize(nRet - nPos);
+	}
+	
+	return outBuffer;
+}
+
+void CEncryptor::SetPassword(const std::string & szPassword) {
+	m_szPassword = szPassword;
+}
+
 void CEncryptor::InitEncipher(std::string &header) {
 	m_nEncipherNum = 0;
 	m_szEncipherIv.resize(IV_LENGTH, 0);
@@ -39,9 +78,11 @@ void CEncryptor::InitEncipher(std::string &header) {
 }
 
 void CEncryptor::InitDecipher(const std::string &data, size_t &offset) {
-	m_nDecipherNum = 0;
-	m_szDecipherIv = data.substr(0, IV_LENGTH);
-	offset = IV_LENGTH;
+	if (data.size() >= IV_LENGTH) {
+		m_nDecipherNum = 0;
+		m_szDecipherIv = data.substr(0, IV_LENGTH);
+		offset = IV_LENGTH;
+	}
 }
 
 bool CEncryptor::IsInitEncipher() {
